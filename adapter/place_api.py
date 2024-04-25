@@ -24,21 +24,48 @@ def get_nearby_restaurant(place_name, used_restaurant):
         geo = gmaps.geocode(place_id=place_complete[0]['place_id'])
         lat_long = geo[0]['geometry']['location'].values()
         location = ",".join([str(i) for i in lat_long])
-        restaurant_nearby = gmaps.places_nearby(location=location, radius = 2000, open_now =False , type = 'restaurant')
+        restaurant_nearby = gmaps.places_nearby(location=location, radius = 2000, open_now=True , type = 'restaurant,food')
         for restaurant in restaurant_nearby['results']:
+            
+            if 'types' in restaurant:
+                types = restaurant['types']
+                if 'lodging' in types:
+                    continue
             if 'rating' not in restaurant or restaurant['name'] == "" or restaurant['name'] in used_restaurant:
                 continue
             else:
                 rating = restaurant['rating']
-            restaurants.append({'name': restaurant['name'], 'rating': rating, 'place_id': restaurant['place_id'], 'lat': restaurant['geometry']['location']['lat'], 'lng':restaurant['geometry']['location']['lng'] })
+                if rating < 3.5:
+                    continue
+                sum_rating = rating * restaurant['user_ratings_total']
+            restaurants.append({'name': restaurant['name'], 'rating': rating, 'place_id': restaurant['place_id'], 'lat': restaurant['geometry']['location']['lat'], 'lng':restaurant['geometry']['location']['lng'], 'sum_rating': sum_rating })
     
         if len(restaurants) == 0:
             return {'name': "", 'rating': 0, 'place_id': "", 'lat': 0, 'lng':0 }
             
-        restaurants.sort(key=lambda x: -x['rating'])
+        restaurants.sort(key=lambda x: -x['sum_rating'])
         return restaurants[0]
     except:
         return {"name": "" ,"place_id": "", "lat": 0 ,"lng":0, "rating": 0}
+
+def get_nearby_hotel(location, used_hotel):
+    try:
+        hotels = []
+        hotel_nearby = gmaps.places_nearby(location=location, radius=10000, open_now=True , type = 'lodging')
+        for hotel in hotel_nearby['results']:
+            if 'rating' not in hotel or hotel['name'] == "" or hotel['name'] in used_hotel:
+                continue
+            else:
+                rating = hotel['rating']
+                if rating < 3.5:
+                    continue
+                sum_rating = rating * hotel['user_ratings_total']
+            hotels.append({'name': hotel['name'], 'rating': rating, 'place_id': hotel['place_id'], 'lat': hotel['geometry']['location']['lat'], 'lng':hotel['geometry']['location']['lng'], 'sum_rating': sum_rating })
+        hotels.sort(key=lambda x: -x['sum_rating'])
+        return hotels[0]
+    except:
+        {"name": "" ,"place_id": "", "lat": 0 ,"lng":0, "rating": 0}
+        
 
 def get_place_info(place_id):
     try:

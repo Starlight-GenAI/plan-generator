@@ -21,8 +21,8 @@ def insert_trip_summary(data, queue_id, user_id ):
     except Exception as e:
         raise e
 
-def insert_video_highlight(data, queue_id, user_id):
+def insert_video_highlight(data, queue_id, user_id, content_summary):
     try:
-        video_highlight.document().set({"content": data, "queue_id": queue_id, "user_id": user_id})
+        video_highlight.document().set({"content": data,"content_summary": content_summary ,"queue_id": queue_id, "user_id": user_id})
     except Exception as e:
         raise e

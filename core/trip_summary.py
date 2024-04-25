@@ -10,7 +10,7 @@ from llm.prompt_template.trip_generation import prompt_with_video
 from llm.output_parser.json_parser import trip_generation_parser, trip_generation_parser_v2
 from config.config import config
 from vertexai.generative_models import Part
-from adapter.place_api import get_place_location, get_nearby_restaurant, get_place_info
+from adapter.place_api import get_place_location, get_nearby_restaurant, get_place_info,get_nearby_hotel
 from llm.prompt_template.map_json import json_trip_summary_converter_prompt
 from langchain_community.utilities import GoogleSearchAPIWrapper
 from langchain_core.tools import Tool
@@ -20,6 +20,8 @@ YES="yes"
 NO="no"
 LOCATION="location"
 DINING="dining"
+HOTEL="hotel"
+NO_GOOD_RESULT = "No good Google Search Result was found"
 
 def summarize_trip(id, user_id, object_name):
     search = GoogleSearchAPIWrapper()
@@ -79,6 +81,7 @@ def summarize_trip_v2(id, user_id, object_name, is_use_subtitle):
             logging.info("generating trip done")
         current_day = 0
         used_restaurant = []
+        used_hotel = []
         for i in completion['trips']:
             location_with_summary = []
             lats = []
@@ -90,7 +93,10 @@ def summarize_trip_v2(id, user_id, object_name, is_use_subtitle):
             for loc in i['location_with_activity']:
                 try:
                     content = search_tool.run(loc['location_name'])
-                    summary = predict(context={"content": content}, prompt=summary_prompt,parser=StrOutputParser())
+                    if content != NO_GOOD_RESULT:
+                        summary = predict(context={"content": content}, prompt=summary_prompt,parser=StrOutputParser())
+                    else:
+                        summary = ""
                 except Exception as e:
                     logging.error(f'calling search api got error {e}')
                     continue
@@ -126,7 +132,11 @@ def summarize_trip_v2(id, user_id, object_name, is_use_subtitle):
                                 locations.append(location)
                                 continue
                             restaurant_info = get_place_info(place_id=restaurant['place_id'])
-                            restaurant_summary = predict(context={"content": search_tool.run(restaurant['name'])}, prompt=summary_prompt,parser=StrOutputParser())
+                            restaurant_content = search_tool.run(restaurant['name'])
+                            if restaurant_content != NO_GOOD_RESULT: 
+                                restaurant_summary = predict(context={"content": restaurant_content}, prompt=summary_prompt,parser=StrOutputParser())
+                            else:
+                                restaurant_summary = ""
                             recommended_restaurant = RecommendedRestaurant(name=restaurant['name'], summary=restaurant_summary, place_id=restaurant['place_id'], lat=restaurant['lat'], lng=restaurant['lng'], rating=restaurant_info['rating'],photos=restaurant_info['photos']).to_dict()
                             locations.append(LocationWithSummary(location_name=location['location_name'], summary=location['summary'], place_id=location['place_id'], lat=location['lat'], lng=location['lng'], category=LOCATION, rating=location['rating'], photos=location['photos'], has_recommended_restaurant=True,recommended_restaurant=recommended_restaurant).to_dict())
                             used_restaurant.append(restaurant['name'])
@@ -143,7 +153,11 @@ def summarize_trip_v2(id, user_id, object_name, is_use_subtitle):
                                 locations.append(location)
                                 continue
                             restaurant_info = get_place_info(place_id=restaurant['place_id'])
-                            restaurant_summary = predict(context={"content": search_tool.run(restaurant['name'])}, prompt=summary_prompt,parser=StrOutputParser())
+                            restaurant_content = search_tool.run(restaurant['name'])
+                            if restaurant_content != NO_GOOD_RESULT:
+                                restaurant_summary = predict(context={"content": restaurant_content}, prompt=summary_prompt,parser=StrOutputParser())
+                            else:
+                                restaurant_summary = ""
                             recommended_restaurant = RecommendedRestaurant(name=restaurant['name'], summary=restaurant_summary, place_id=restaurant['place_id'], lat=restaurant['lat'], lng=restaurant['lng'], rating=restaurant_info['rating'],photos=restaurant_info['photos']).to_dict()
                             locations.append(LocationWithSummary(location_name=location['location_name'], summary=location['summary'], place_id=location['place_id'], lat=location['lat'], lng=location['lng'], category=LOCATION, rating=location['rating'], photos=location['photos'], has_recommended_restaurant=True,recommended_restaurant=recommended_restaurant).to_dict())
                             used_restaurant.append(restaurant['name'])
@@ -151,8 +165,17 @@ def summarize_trip_v2(id, user_id, object_name, is_use_subtitle):
                             locations.append(location)
                 else:
                     locations = relevant_location
-                    
-                
+            
+            recommended_hotel = get_nearby_hotel(f"{locations[-1]['lat']},{locations[-1]['lng']}", used_hotel)
+            if recommended_hotel['name'] != "":
+                hotel_info = get_place_info(recommended_hotel['place_id'])
+                hotel_content = search_tool.run(recommended_hotel['name'])
+                if hotel_content != NO_GOOD_RESULT:
+                    hotel_summary=predict(context={"content": hotel_content}, prompt=summary_prompt,parser=StrOutputParser())
+                else:
+                    hotel_summary = ""
+                used_hotel.append(recommended_hotel['name'])
+                locations.append(LocationWithSummary(location_name=recommended_hotel['name'], summary=hotel_summary, place_id=recommended_hotel['place_id'], lat=recommended_hotel['lat'], lng=recommended_hotel['lng'], category=HOTEL, rating=recommended_hotel['rating'], photos=hotel_info['photos']).to_dict())
             trips.append(TripSummaryContent(day=f"Day {current_day}", location_with_summary=locations).to_dict())
         logging.info("preparing to store trip into firestore ....")
         insert_trip_summary(data=trips, queue_id=id, user_id=user_id)
